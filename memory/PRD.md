@@ -52,12 +52,21 @@ O'zbekiston uchun professional AI-driven Buxgalter platformasi:
 - Creator: `layloinomova99@gmail.com` / `Creator@2026!Secure`
 - New users self-register (no seeded users).
 
+## What's implemented (2026-09-21, phase 2 — Telegram Creator boti + Bilim bazasi)
+- Telegram bot @AI_Buxgalter_yordamchisi_bot (aiogram polling ichida backend). FAQAT Creator: `/login email parol` orqali bog'lanadi (`telegram_links` kolleksiyasi), boshqa rollar "Faqat Creator uchun".
+- Buyruqlar: /start /yordam /login /chiqish /kompaniya (inline tanlash) /qoidalar /bilim /yangi
+- Fayl yuklash (.py .txt .pdf .docx .xlsx .json rasm, 20MB): `services/knowledge.py::ingest_file` → Claude tahlil → `knowledge_docs` + `ai_rules` (source="document"). Fayl saqlanmaydi (tempfile), matn `text_excerpt` sifatida Mongo'da.
+- Oddiy matn → `run_agent_turn(source="telegram")`; Creator uchun AI qoidani `save_creator_rule` bilan avtomatik saqlaydi.
+- Yangi AI tool: `search_knowledge` (bilim bazasidan qidirish). `save_creator_rule` endi tool ichida rol tekshiradi.
+- API: GET/DELETE /api/knowledge, GET /api/knowledge/{id}, POST /api/knowledge/upload (multipart), GET /api/telegram/status — creator-only.
+- Frontend: Creator nav → "Bilim bazasi" (/creator/bilim): Telegram holati, web yuklash, hujjatlar ro'yxati, detal dialog (faktlar + qoidalar), o'chirish.
+- Test: iteration_3.json — 100% pass.
+
 ## Backlog / Next phases
 ### P0 (near-term)
 - Soliq adapter: when Creator provides workflow, wire real HTTP calls + ERI signing
 - 1C adapter: real OData connect + firm selection (port `OneCBridge` logic from legacy V129 script)
 - ERI/EIMZO adapter: encrypted key upload per company (KMS / envelope encryption)
-- Telegram: wire `/ai` command to the same AI agent (currently placeholder response)
 - Streaming AI responses (SSE) — currently non-streaming for MVP
 
 ### P1
