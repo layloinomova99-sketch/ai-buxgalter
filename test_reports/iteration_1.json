@@ -1,0 +1,47 @@
+{
+  "summary": "Backend smoke tested against public URL. 20/22 checks passed. Auth, companies (isolation, 10-limit), products, receipts (+duplicate), stats, rules RBAC, creator user management (block/unblock), and audit logs all work correctly. TWO issues: (1) BLOCKER - AI chat endpoint returns 500 because emergentintegrations LlmChat is invoking LiteLLM's native anthropic provider and requires ANTHROPIC_API_KEY env var — EMERGENT_LLM_KEY is not being routed through the Emergent proxy. (2) Minor - some routes (PATCH /creator/users/{id}, DELETE /mappings/{id}) return 307 redirects for non-trailing-slash calls; functionality works after redirect.",
+  "tested_scope": ["backend", "auth", "integration"],
+  "passed": [
+    "GET /api/ returns 200 with service name",
+    "POST /api/auth/register returns token + user with role=administrator, active=true, access_granted=true",
+    "POST /api/auth/login for new user returns token",
+    "POST /api/auth/login for seeded Creator returns role=creator",
+    "GET /api/auth/me with Bearer token",
+    "GET /api/companies for fresh user returns empty array (count=0, limit=10)",
+    "POST /api/companies sets owner_user_id to current user and GET returns it",
+    "Company isolation: User A does NOT see User B's company; GET /api/companies/{B.id}/stats returns 404 for User A",
+    "10-company limit: 11th POST returns 400 with Uzbek error 'Kompaniyalar limiti: 10 ta.'",
+    "POST /api/products + GET /api/companies/{id}/products",
+    "POST /api/receipts + duplicate external_id returns {duplicate:true}",
+    "GET /api/companies/{id}/stats returns receipts_total, products_total, mappings_total, rules_total",
+    "POST /api/rules returns 403 for non-creator (administrator)",
+    "GET /api/rules?company_id=... returns rules list",
+    "GET /api/creator/users returns all users with companies_count",
+    "PATCH /api/creator/users/{id} (with trailing-slash follow) sets access_granted=false",
+    "Blocked user's next login returns 403 with Uzbek message",
+    "GET /api/audit?company_id=X as owner returns audit entries (company_created, receipt_created)",
+    "GET /api/audit without company_id as non-creator returns 400 'company_id kerak'"
+  ],
+  "failed": [
+    {
+      "area": "AI chat integration",
+      "issue": "POST /api/ai/chat returns 500 for both simple message ('Salom') and tool-use prompt ('Mening kompaniyalarimni ko'rsat'). Response body: 'AI bilan bog'lanishda texnik xatolik yuz berdi. Iltimos, qayta urinib ko'ring.'",
+      "evidence": "Backend log: litellm.AuthenticationError: Missing Anthropic API Key - A call is being made to anthropic but no key is set either in the environment variables or via params. Please set `ANTHROPIC_API_KEY` in your environment vars. Trace: emergentintegrations/llm/chat.py:277 -> anthropic_chat_completions.completion -> AnthropicConfig().validate_environment. EMERGENT_LLM_KEY is set in /app/backend/.env but LiteLLM is calling Anthropic directly instead of routing via the Emergent proxy (base_url=https://integrations.emergentagent.com/llm).",
+      "priority": "HIGH"
+    },
+    {
+      "area": "Route trailing-slash",
+      "issue": "PATCH /api/creator/users/{id} and DELETE /api/mappings/{id} return HTTP 307 redirect (to trailing-slash variant). Works fine when client follows redirect and re-sends method+body, but some HTTP clients (fetch default, axios) drop body/method on 307. Could cause silent failures in frontend/telegram bot.",
+      "evidence": "curl -X PATCH ... -> HTTP:307 (empty body). Same for DELETE. With -L flag returns 200 with expected updated user object.",
+      "priority": "MEDIUM"
+    }
+  ],
+  "action_items": [
+    "Fix AI chat: ensure emergentintegrations LlmChat is initialized with the Emergent LLM key/base_url so LiteLLM does not fall back to requiring ANTHROPIC_API_KEY. Verify /app/backend/services/ai_agent.py passes EMERGENT_LLM_KEY properly (e.g., LlmChat(api_key=os.environ['EMERGENT_LLM_KEY']) with provider set correctly).",
+    "Register routes for both trailing-slash and non-trailing-slash (or normalize) to avoid 307 on PATCH/DELETE. Alternatively update frontend to always include the trailing slash."
+  ],
+  "success_rate": {"backend": "91%", "frontend": "not tested"},
+  "retest_needed": true,
+  "full_testing_deferred": true,
+  "notes": "Mappings and Rules POST schemas require additional required fields (soliq_name, one_c_name for mappings; category, instruction for rules). My initial test payloads were incomplete; endpoints themselves returned proper 422 validation errors, which is correct behavior. Not counted as failures."
+}
