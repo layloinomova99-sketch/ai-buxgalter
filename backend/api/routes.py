@@ -496,3 +496,64 @@ async def company_stats(company_id: str, payload: dict = Depends(current_user_pa
         "mappings_total": await _cnt("product_mappings", {"company_id": company_id, "active": True}),
         "rules_total": await _cnt("ai_rules", {"$or": [{"company_id": company_id}, {"company_id": None}], "status": "active"}),
     }
+
+
+# ---------- Knowledge base (Creator) ----------
+from fastapi import UploadFile, File, Form
+from services.knowledge import ingest_file, doc_public, delete_doc
+
+
+@router.get("/knowledge", dependencies=[Depends(require_role("creator"))])
+async def list_knowledge(payload: dict = Depends(current_user_payload)):
+    db = get_db()
+    rows = [doc_public(d) async for d in db.knowledge_docs.find({}).sort("_id", -1).limit(200)]
+    return {"documents": rows, "count": len(rows)}
+
+
+@router.get("/knowledge/{doc_id}", dependencies=[Depends(require_role("creator"))])
+async def get_knowledge(doc_id: str):
+    db = get_db()
+    try:
+        d = await db.knowledge_docs.find_one({"_id": ObjectId(doc_id)})
+    except Exception:
+        d = None
+    if not d:
+        raise HTTPException(404, "Hujjat topilmadi")
+    out = doc_public(d)
+    rule_ids = [ObjectId(i) for i in d.get("rule_ids") or []]
+    out["rules"] = [{"id": str(r["_id"]), "category": r.get("category"), "instruction": r.get("instruction"), "priority": r.get("priority")}
+                    async for r in db.ai_rules.find({"_id": {"$in": rule_ids}})]
+    return out
+
+
+@router.post("/knowledge/upload", dependencies=[Depends(require_role("creator"))])
+async def upload_knowledge(file: UploadFile = File(...), company_id: Optional[str] = Form(None), note: Optional[str] = Form(None),
+                           payload: dict = Depends(current_user_payload)):
+    data = await file.read()
+    if len(data) > 20 * 1024 * 1024:
+        raise HTTPException(413, "Fayl 20 MB dan katta")
+    return await ingest_file(payload["sub"], file.filename or "fayl", data, source="web", company_id=company_id or None, note=note)
+
+
+@router.delete("/knowledge/{doc_id}", dependencies=[Depends(require_role("creator"))])
+async def remove_knowledge(doc_id: str):
+    try:
+        ok = await delete_doc(doc_id)
+    except Exception:
+        ok = False
+    if not ok:
+        raise HTTPException(404, "Hujjat topilmadi")
+    return {"deleted": True}
+
+
+@router.get("/telegram/status", dependencies=[Depends(require_role("creator"))])
+async def telegram_status(payload: dict = Depends(current_user_payload)):
+    db = get_db()
+    link = await db.telegram_links.find_one({"user_id": payload["sub"]})
+    return {
+        "bot_configured": bool(os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()),
+        "bot_username": os.environ.get("TELEGRAM_BOT_USERNAME", ""),
+        "linked": bool(link),
+        "telegram_username": link.get("telegram_username") if link else None,
+        "active_company_id": link.get("active_company_id") if link else None,
+    }

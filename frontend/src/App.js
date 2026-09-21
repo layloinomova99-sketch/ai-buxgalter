@@ -16,6 +16,7 @@ import Rules from "@/pages/Rules";
 import AIChat from "@/pages/AIChat";
 import Audit from "@/pages/Audit";
 import CreatorUsers from "@/pages/CreatorUsers";
+import Knowledge from "@/pages/Knowledge";
 
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -49,6 +50,7 @@ function AppRoutes() {
       <Route path="/ai" element={<Protected><AIChat /></Protected>} />
       <Route path="/audit" element={<Protected><Audit /></Protected>} />
       <Route path="/creator/foydalanuvchilar" element={<Protected><CreatorOnly><CreatorUsers /></CreatorOnly></Protected>} />
+      <Route path="/creator/bilim" element={<Protected><CreatorOnly><Knowledge /></CreatorOnly></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

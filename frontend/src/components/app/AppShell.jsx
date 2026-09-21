@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Building2, Receipt, Package, GitCompareArrows, ScrollText,
-  Sparkles, ShieldCheck, Users, Settings, LogOut, Sun, Moon, ChevronDown,
+  Sparkles, ShieldCheck, Users, Settings, LogOut, Sun, Moon, ChevronDown, BookOpen,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useCompany } from "@/context/CompanyContext";
@@ -27,6 +27,7 @@ const NAV = [
 
 const CREATOR_NAV = [
   { to: "/creator/foydalanuvchilar", label: "Foydalanuvchilar", icon: Users, testid: "nav-creator-users" },
+  { to: "/creator/bilim", label: "Bilim bazasi", icon: BookOpen, testid: "nav-creator-knowledge" },
 ];
 
 export function AppShell({ children }) {

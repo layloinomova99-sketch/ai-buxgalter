@@ -137,6 +137,18 @@ AI_TOOL_SCHEMAS = [
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_knowledge",
+            "description": "Creator yuklagan hujjatlar (bilim bazasi) ichidan kalit so'z bo'yicha qidiradi: 1C, Soliq, EIMZO skriptlari, yo'riqnomalar.",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -261,7 +273,9 @@ async def dispatch_tool(name: str, arguments: dict, user_id: str, company_id: Op
         return {"rules": rows, "count": len(rows)}
 
     if name == "save_creator_rule":
-        # Note: role check is enforced by the endpoint that starts the chat.
+        u = await db.users.find_one({"_id": ObjectId(user_id)})
+        if not u or u.get("role") != "creator":
+            return {"error": "Faqat Creator qoida saqlay oladi."}
         doc = {
             "creator_id": user_id,
             "company_id": company_id if arguments.get("scope") == "company" else None,
@@ -290,5 +304,10 @@ async def dispatch_tool(name: str, arguments: dict, user_id: str, company_id: Op
         if not c:
             return {"error": "Kompaniya topilmadi"}
         return {"eri": c.get("eri_status"), "soliq": c.get("soliq_status"), "one_c": c.get("one_c_status"), "last_sync": c.get("last_sync")}
+
+    if name == "search_knowledge":
+        from services.knowledge import search_knowledge
+        rows = await search_knowledge(arguments.get("query") or "", company_id)
+        return {"documents": rows, "count": len(rows), "note": "Bo'sh bo'lsa, Creator hali bu mavzuda hujjat yuklamagan."}
 
     return {"error": f"Noma'lum tool: {name}"}

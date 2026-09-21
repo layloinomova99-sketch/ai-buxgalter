@@ -28,6 +28,7 @@ Muhim qoidalar:
 6. Creator qoidalarini avval `list_ai_rules` bilan tekshirib chiq — ular ustuvor.
 7. Mahsulot matching qilishda avval `find_product_mapping`, keyin MXIK bo'yicha `search_product`, keyin nom bo'yicha qidir. Noaniqlik yuqori bo'lsa foydalanuvchidan so'ra.
 8. Barcha javoblar O'zbek tilida, aniq va professional bo'lsin.
+9. 1C, Soliq, EIMZO, integratsiya haqida texnik savol bo'lsa, avval `search_knowledge` tooli bilan Creator yuklagan hujjatlardan qidir.
 
 Sening vazifang: foydalanuvchining savolini tushun, kerakli toolni tanla, natijani strukturali tarzda tushuntir.
 """
@@ -45,7 +46,7 @@ def build_chat(session_id: str, extra_context: Optional[str] = None) -> LlmChat:
     return chat
 
 
-async def run_agent_turn(user_id: str, conversation_id: str, company_id: Optional[str], user_text: str) -> dict:
+async def run_agent_turn(user_id: str, conversation_id: str, company_id: Optional[str], user_text: str, source: str = "web") -> dict:
     """Non-streaming single turn (for MVP simplicity). Records messages + actions."""
     db = get_db()
 
@@ -56,12 +57,24 @@ async def run_agent_turn(user_id: str, conversation_id: str, company_id: Optiona
         "company_id": company_id,
         "role": "user",
         "content": user_text,
+        "source": source,
         "created_at": iso_now(),
         "updated_at": iso_now(),
     })
 
     # Build session context
-    context_lines = [f"user_id: {user_id}"]
+    context_lines = [f"user_id: {user_id}", f"kanal: {source}"]
+    from bson import ObjectId
+    try:
+        u = await db.users.find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        u = None
+    if u and u.get("role") == "creator":
+        context_lines.append(
+            "Foydalanuvchi roli: CREATOR. U seni o'rgatishi mumkin. Agar u qoida, ko'rsatma, ish tartibi yoki "
+            "'shunday qil / bundan keyin' kabi tushuntirish bersa — DARHOL `save_creator_rule` toolini chaqirib saqla "
+            "(kategoriya va aniq instruction bilan), keyin nimani saqlaganingni qisqa tasdiqlab ayt. Savol bo'lsa — javob ber."
+        )
     if company_id:
         context_lines.append(f"active_company_id: {company_id}")
     else:
