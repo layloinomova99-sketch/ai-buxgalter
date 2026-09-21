@@ -1,0 +1,93 @@
+{
+  "project_name": "AI BUXGALTER PLATFORMASI",
+  "theme": "Light and Dark mode supported. Default: Light. Theming logic must support seamless switching.",
+  "typography": {
+    "headings": "Cabinet Grotesk (Weights: 500 Medium, 700 Bold). Used for page titles, panel headers, and empty state CTAs. Tracking-tight.",
+    "body": "IBM Plex Sans (Weights: 400 Regular, 500 Medium). Used for all data tables, numbers, forms, and general UI. Excellent legibility for accounting.",
+    "mono": "JetBrains Mono (Weights: 400, 500). Used for MXIK codes, Soliq IDs, API keys, and AI JSON tool calls.",
+    "hierarchy": {
+      "h1": "text-3xl sm:text-4xl font-bold tracking-tight",
+      "h2": "text-2xl sm:text-3xl font-semibold tracking-tight",
+      "h3": "text-xl font-medium",
+      "body": "text-sm text-foreground/90 leading-relaxed",
+      "small": "text-xs text-muted-foreground uppercase tracking-widest font-medium"
+    }
+  },
+  "colors": {
+    "archetype": "SWISS FINANCIAL (Archetype 4) merged with ORGANIC TRUST (Archetype 1)",
+    "rules": "FORBIDDEN: Purple/Violet gradients on white (AI slop). DO NOT use complete transparent backgrounds over content.",
+    "light_mode": {
+      "background": "#FAFAFA",
+      "surface": "#FFFFFF",
+      "border": "#E5E5E5",
+      "text_primary": "#0A0A0A",
+      "text_secondary": "#525252",
+      "primary": "#065F46", 
+      "primary_hover": "#047857"
+    },
+    "dark_mode": {
+      "background": "#09090B",
+      "surface": "#121214",
+      "border": "#27272A",
+      "text_primary": "#F4F4F5",
+      "text_secondary": "#A1A1AA",
+      "primary": "#10B981",
+      "primary_hover": "#34D399"
+    },
+    "statuses": {
+      "received": "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800",
+      "parsed": "bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950 dark:text-cyan-400 dark:border-cyan-900",
+      "matched": "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-900",
+      "needs_review": "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-900",
+      "approved": "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950 dark:text-teal-400 dark:border-teal-900",
+      "imported": "bg-neutral-900 text-white border-neutral-950 dark:bg-white dark:text-black dark:border-neutral-200",
+      "failed": "bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-400 dark:border-red-900",
+      "duplicate": "bg-stone-100 text-stone-600 border-stone-200 dark:bg-stone-900 dark:text-stone-400 dark:border-stone-800"
+    }
+  },
+  "visual_enhancers": {
+    "borders": "1px solid crisp borders. Use border-collapse for tables. Grid items must have explicit borders separating them, creating a technical ledger feel.",
+    "shadows": "Minimal. Use shadow-sm for interactive cards on hover. Mostly rely on borders for hierarchy.",
+    "radius": "radius-sm (4px) or radius-none. Sharp, professional, structural. No pill-shaped buttons for tables, only for primary global CTAs.",
+    "glassmorphism": "Used only for the sticky top-nav and the AI chat floating panel. Light: bg-white/80 backdrop-blur-md border-b. Dark: bg-[#09090B]/80 backdrop-blur-md border-b."
+  },
+  "layouts": {
+    "app_shell": "Persistent left sidebar (Navigation) + Sticky Top Bar (Company Switcher + User Profile).",
+    "sidebar": "Darker shade than background in Light Mode (#F4F4F5). Contains Lucide icons + text. Collapsible on mobile.",
+    "top_bar": "Contains the Multi-Company Switcher. This is the global context. Changing company here changes the data everywhere.",
+    "dashboard_grid": "Bento Protocol Mode B: High Density. gap-4. Metric cards (col-span-1), Main Chart (col-span-2 or 3).",
+    "empty_state_critical": "Onboarding Empty State (0 Companies): User logs in and sees NO dashboard data. Instead, a beautifully crafted empty state centered on the screen: 'Kompaniya qo'shish'. Generous padding (p-16), dashed border container, large Lucide 'Building' icon, clear descriptive text, and a primary action button. THIS IS CRITICAL FOR FIRST-TIME EXPERIENCE.",
+    "data_tables": "Dense. text-sm. Use sticky headers. Checkboxes for bulk actions. Action menu (three dots) on the right edge."
+  },
+  "components": {
+    "buttons": "Shadcn standard. Primary uses Emerald/Forest Green. Secondary uses crisp white/black borders.",
+    "badges": "Used extensively for Receipt Statuses and Role badges (Creator, Admin, Observer). Must use the specific status colors defined above.",
+    "ai_chat": "Not a generic chatbot. A structural, professional sidebar or split-pane. When AI reasoning or tool calling happens, show it as an accordion or muted mono-text block (e.g., '> Fetching Soliq Data...'). Must prompt for confirmation before financial actions.",
+    "forms": "Strict Shadcn forms. Inputs must have clear focus states (ring-2 ring-emerald-500).",
+    "modals": "Use Shadcn Dialog for adding companies, matching products, and editing AI rules. Ensure modals have solid backgrounds (no transparent backgrounds).",
+    "icons": "lucide-react ONLY."
+  },
+  "motion": {
+    "transitions": "Fast, strictly structural. transition-colors duration-150. No bouncy animations.",
+    "lists": "Staggered fade-in for receipt tables and product lists.",
+    "ai_typing": "Subtle blinking cursor and fast token stream. No delays."
+  },
+  "accessibility": {
+    "contrast": "Strict adherence to APCA. Ensure white text on Emerald has enough contrast.",
+    "focus": "focus-visible:ring-2 focus-visible:ring-offset-2 on all interactive elements.",
+    "data_testid": "MANDATORY. Every button, tab, and form input MUST have a `data-testid` attribute (e.g., `data-testid='add-company-btn'`, `data-testid='company-switcher-dropdown'`)."
+  },
+  "domain_specific_rules": {
+    "language": "Uzbek (Latin script). Use correct terminology: Kompaniya, Cheklar, Mahsulotlar, Mappinglar, Qoidalar, AI Yordamchi, Auditlar.",
+    "creator_panel": "Visually distinct settings area for the 'Creator' (Owner). Use a slightly different sidebar tint or a 'System Settings' header to denote elevated privileges. Includes AI Knowledge base CRUD.",
+    "product_matching": "UI must support side-by-side comparison: [Soliq Product / MXIK] <--> [1C Product Catalog]. Use a drag-and-drop or simple select mapping interface."
+  },
+  "general_ui_ux_guidelines": [
+    "DO NOT apply universal transition: all. Target specific properties.",
+    "DO NOT center align the app container. Text aligns left for natural reading flow, especially for financial data.",
+    "Use 2-3x more spacing for empty states, but keep data tables tight and dense.",
+    "Never use placeholder image URLs. Use lucide-react icons for fallbacks.",
+    "Toasts must use 'sonner' (from /app/src/components/ui/sonner.tsx).",
+    "Prioritize existing Shadcn UI components in src/components/ui."
+  ]
+}
