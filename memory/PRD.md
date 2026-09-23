@@ -62,10 +62,22 @@ O'zbekiston uchun professional AI-driven Buxgalter platformasi:
 - Frontend: Creator nav → "Bilim bazasi" (/creator/bilim): Telegram holati, web yuklash, hujjatlar ro'yxati, detal dialog (faktlar + qoidalar), o'chirish.
 - Test: iteration_3.json — 100% pass.
 
+## What's implemented (2026-09-23, phase 3 — 1C + Soliq cheklar + Tasdiqlash + Ovoz)
+- **1C OData adapter** (`services/adapters/one_c_adapter.py`, V129 `OneCBridge` porti): metadata parse, paging, nomenklatura yuklash, chek hujjati tuzilmasini avtomatik aniqlash (Чек ККМ / Отчет о розничных продажах / Реализация), payload qurish, POST, comment-token bo'yicha dublikat tekshiruvi. Clobus ilova URL → OData URL normalizatsiyasi.
+- `services/one_c_service.py`: kompaniya bo'yicha ulanish (`one_c_connections`, parol Fernet bilan shifrlangan, kalit = sha256(JWT_SECRET)), test, mahsulot sinxron (`products.external_one_c_id`=Ref_Key), `push_receipt`.
+- **Soliq adapter** (`soliq_adapter.py`): my.soliq.uz "Чеклар рўйхати" .xlsx parseri (V129 `_chek_parse_excel` porti). Rasmiy API yo'q — Excel eksport orqali. Qaytarish cheklari o'tkaziladi, dublikat `external_id=soliq:{fm}:{number}`.
+- `services/receipts_service.py`: import → `receipts`+`receipt_items`, matching: mapping → MXIK → aniq nom → fuzzy (≥0.85 medium, ≥0.6 taxmin). Qo'lda bog'lash mapping saqlaydi va bir xil nomli qatorlarga qo'llanadi.
+- **Tasdiqlash** (`services/approvals.py`, `pending_actions`): import_receipt / import_receipts_batch / sync_products / create_product_mapping. Web `ApprovalsPanel` (Cheklar + AI sahifalarida) va Telegram inline "✅ Tasdiqlash / ❌ Bekor" tugmalari; `/tasdiqlar` buyrug'i.
+- AI toollar: `propose_action`, `get_one_c_status`, `get_receipt_details`; `request_approval` ham pending action yaratadi. `run_agent_turn` → `pending_action_ids`.
+- **Telegram**: ovozli xabar → ffmpeg (imageio-ffmpeg) ogg→mp3 → OpenAI whisper-1 (Emergent key) → AI; Soliq .xlsx avtomatik aniqlanib cheklar sifatida import qilinadi (aktiv kompaniya kerak).
+- API: GET/PUT/DELETE /api/companies/{id}/one-c, POST .../one-c/test, .../one-c/sync-products, POST .../soliq/upload, GET /api/receipts/{id}, POST /api/receipt-items/{id}/match, POST /api/receipts/{id}/rematch, POST .../receipts/import-1c, GET /api/actions, POST /api/actions/{id}/approve|reject.
+- Frontend: Kompaniyalar → "1C" dialog; Cheklar → Excel yuklash, moslik ustuni, detal dialog + qo'lda bog'lash, checkbox → "1C ga yozish" → tasdiq paneli.
+- Test: iteration_4.json — backend 15/15 pass, frontend pass. Haqiqiy 1C bilan yozish real login/parol bilan sinovdan o'tkazilishi kerak (test 401 qaytardi).
+
 ## Backlog / Next phases
 ### P0 (near-term)
-- Soliq adapter: when Creator provides workflow, wire real HTTP calls + ERI signing
-- 1C adapter: real OData connect + firm selection (port `OneCBridge` logic from legacy V129 script)
+- Soliq: rasmiy API/ERI orqali avtomatik cheklar (hozircha Excel eksport)
+- 1C: hisob ustunlari (V129 `_chek_acct_*`), ombor/tashkilot tanlash UI, Отчет rejimida kunlik jamlash
 - ERI/EIMZO adapter: encrypted key upload per company (KMS / envelope encryption)
 - Streaming AI responses (SSE) — currently non-streaming for MVP
 
