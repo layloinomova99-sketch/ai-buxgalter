@@ -29,6 +29,9 @@ HELP_TEXT = (
     "/kompaniya — aktiv kompaniyani tanlash\n"
     "/qoidalar — oxirgi qoidalar\n"
     "/bilim — yuklangan fayllar\n"
+    "/tasdiqlar — kutilayotgan tasdiqlar\n"
+    "🎤 Ovozli xabar — matnga o'giriladi va AI'ga yuboriladi\n"
+    "📊 Soliq 'Чеклар рўйхати' .xlsx — cheklar sifatida import qilinadi (aktiv kompaniya kerak)\n"
     "/yangi — yangi suhbat boshlash\n"
     "/chiqish — hisobni uzish\n"
     "/yordam — bu xabar"
@@ -64,6 +67,9 @@ async def start_telegram_bot():
 
     from services.ai_agent import run_agent_turn
     from services.knowledge import ingest_file
+    from services.approvals import decide_action, list_actions
+    from services.adapters.soliq_adapter import is_soliq_excel
+    from services.receipts_service import import_soliq_excel
 
     bot = Bot(token=token)
     dp = Dispatcher()
@@ -194,6 +200,108 @@ async def start_telegram_bot():
             lines.append(f"{st} {d.get('filename')} — {len(d.get('rule_ids') or [])} qoida")
         await m.answer("\n".join(lines))
 
+    def _action_kb(action_id: str):
+        return InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"act:ok:{action_id}"),
+            InlineKeyboardButton(text="❌ Bekor", callback_data=f"act:no:{action_id}"),
+        ]])
+
+    async def _send_pending(chat_id: int, action_ids: list):
+        for aid in action_ids:
+            a = await db.pending_actions.find_one({"_id": ObjectId(aid)})
+            if not a or a.get("status") != "pending":
+                continue
+            await bot.send_message(chat_id, f"⚠️ *Tasdiq kerak*\n{a.get('description')}\n\nTuri: {a.get('action_type')}",
+                                   parse_mode="Markdown", reply_markup=_action_kb(aid))
+
+    @dp.message(Command("tasdiqlar"))
+    async def pending_handler(m: Message):
+        link = await _link_for(m.from_user.id)
+        if not link:
+            return await m.answer(NOT_LINKED)
+        rows = await list_actions(status="pending", limit=10)
+        if not rows:
+            return await m.answer("Kutilayotgan tasdiqlar yo'q ✅")
+        for a in rows:
+            await m.answer(f"⚠️ {a['label']}\n{a['description']}", reply_markup=_action_kb(a["id"]))
+
+    @dp.callback_query(F.data.startswith("act:"))
+    async def action_cb(cq: CallbackQuery):
+        link = await _link_for(cq.from_user.id)
+        if not link:
+            return await cq.answer(NOT_CREATOR, show_alert=True)
+        _, verdict, aid = cq.data.split(":", 2)
+        approve = verdict == "ok"
+        try:
+            await cq.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        if approve:
+            await cq.message.answer("⏳ Bajarilmoqda...")
+        try:
+            res = await decide_action(aid, link["user_id"], approve, source="telegram")
+        except Exception as e:
+            return await cq.message.answer(f"❌ Xato: {e}")
+        if res["status"] == "rejected":
+            txt = f"❌ Bekor qilindi: {res['description']}"
+        elif res["status"] == "done":
+            r = res.get("result") or {}
+            detail = ""
+            if r.get("ref_key"): detail = f"\n1C Ref: `{r['ref_key']}`"
+            if "imported" in r: detail = f"\nYozildi: {r['imported']} ta, xato: {len(r.get('failed') or [])}"
+            if "synced" in r: detail = f"\nSinxronlandi: {r['synced']} ta mahsulot"
+            if r.get("already"): detail += "\n(1C da allaqachon mavjud edi)"
+            if r.get("warnings"): detail += "\n⚠️ " + "; ".join(r["warnings"][:3])
+            txt = f"✅ Bajarildi: {res['description']}{detail}"
+        else:
+            txt = f"❌ Bajarilmadi: {res['description']}\n{res.get('error') or (res.get('result') or {}).get('failed') or ''}"
+        try:
+            await cq.message.answer(txt, parse_mode="Markdown")
+        except Exception:
+            await cq.message.answer(txt)
+        await cq.answer()
+
+    @dp.message(F.voice | F.audio)
+    async def voice_handler(m: Message):
+        link = await _link_for(m.from_user.id)
+        if not link:
+            existing = await db.telegram_links.find_one({"telegram_id": m.from_user.id})
+            return await m.answer(NOT_CREATOR if existing else NOT_LINKED)
+        v = m.voice or m.audio
+        if (v.file_size or 0) > 24 * 1024 * 1024:
+            return await m.answer("Audio 24 MB dan katta.")
+        status = await m.answer("🎤 Ovoz matnga o'girilmoqda...")
+        try:
+            tg_file = await bot.get_file(v.file_id)
+            buf = await bot.download_file(tg_file.file_path)
+            from services.speech import transcribe
+            text = await transcribe(buf.read(), "voice.ogg" if m.voice else (v.file_name or "audio.mp3"))
+        except Exception as e:
+            log.exception("voice failed")
+            return await status.edit_text(f"❌ Ovozni o'girib bo'lmadi: {e}")
+        if not text.strip():
+            return await status.edit_text("❌ Ovozdan matn ajratilmadi.")
+        await status.edit_text(f"📝 Siz: _{text}_", parse_mode="Markdown")
+        await _ai_reply(m, link, text)
+
+    async def _ai_reply(m: Message, link: dict, text: str):
+        await bot.send_chat_action(m.chat.id, ChatAction.TYPING)
+        conv_id = await _ensure_conversation(link)
+        try:
+            result = await run_agent_turn(user_id=link["user_id"], conversation_id=conv_id,
+                                          company_id=link.get("active_company_id"), user_text=text, source="telegram")
+        except Exception as e:
+            log.exception("AI turn failed")
+            return await m.answer(f"❌ AI xatosi: {e}")
+        reply = result.get("content") or "(bo'sh javob)"
+        saved = [t for t in result.get("tool_trace", []) if t.get("tool") == "save_creator_rule" and t.get("result", {}).get("saved")]
+        if saved:
+            reply += f"\n\n📜 {len(saved)} ta qoida saqlandi."
+        for i in range(0, len(reply), 4000):
+            await m.answer(reply[i:i + 4000])
+        if result.get("pending_action_ids"):
+            await _send_pending(m.chat.id, result["pending_action_ids"])
+
     async def _handle_file(m: Message, file_id: str, filename: str, size: int):
         link = await _link_for(m.from_user.id)
         if not link:
@@ -208,6 +316,19 @@ async def start_telegram_bot():
             data = buf.read()
         except Exception as e:
             return await status.edit_text(f"❌ Faylni yuklab olishda xato: {e}")
+        if filename.lower().endswith((".xlsx", ".xlsm")) and is_soliq_excel(data):
+            cid = link.get("active_company_id")
+            if not cid:
+                return await status.edit_text("📊 Bu Soliq cheklar fayli. Avval /kompaniya bilan aktiv kompaniyani tanlang.")
+            try:
+                r = await import_soliq_excel(cid, link["user_id"], data, source="telegram")
+            except Exception as e:
+                return await status.edit_text(f"❌ Cheklar import qilinmadi: {e}")
+            txt = (f"📊 *Soliq cheklar import qilindi*\n"
+                   f"Yangi: {r['created']} · Takror: {r['duplicates']} · O'tkazildi: {r['skipped']}\n"
+                   f"✅ To'liq moslashgan: {r['matched']}\n⚠️ Ko'rib chiqish kerak: {r['needs_review']}\n\n"
+                   "1C ga yozish uchun: «matched cheklarni 1C ga yoz» deb yozing yoki web paneldan yuboring.")
+            return await status.edit_text(txt, parse_mode="Markdown")
         result = await ingest_file(link["user_id"], filename, data, source="telegram",
                                    company_id=link.get("active_company_id"), note=m.caption)
         if result.get("status") != "ready":
@@ -245,22 +366,7 @@ async def start_telegram_bot():
         if not link:
             existing = await db.telegram_links.find_one({"telegram_id": m.from_user.id})
             return await m.answer(NOT_CREATOR if existing else NOT_LINKED)
-        await bot.send_chat_action(m.chat.id, ChatAction.TYPING)
-        conv_id = await _ensure_conversation(link)
-        try:
-            result = await run_agent_turn(
-                user_id=link["user_id"], conversation_id=conv_id,
-                company_id=link.get("active_company_id"), user_text=text, source="telegram",
-            )
-        except Exception as e:
-            log.exception("AI turn failed")
-            return await m.answer(f"❌ AI xatosi: {e}")
-        reply = result.get("content") or "(bo'sh javob)"
-        saved = [t for t in result.get("tool_trace", []) if t.get("tool") == "save_creator_rule"]
-        if saved:
-            reply += f"\n\n📜 {len(saved)} ta qoida saqlandi."
-        for i in range(0, len(reply), 4000):
-            await m.answer(reply[i:i + 4000])
+        await _ai_reply(m, link, text)
 
     log.info("Telegram bot polling boshlandi.")
     try:

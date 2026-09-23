@@ -149,6 +149,38 @@ AI_TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_one_c_status",
+            "description": "Joriy kompaniyaning 1C OData ulanish holati, topilgan chek hujjati tuzilmasi va sinxronlangan mahsulotlar soni.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_receipt_details",
+            "description": "Bitta chekning qatorlari va ularning 1C mahsulotlariga mosligi (matching) haqida to'liq ma'lumot.",
+            "parameters": {"type": "object", "properties": {"receipt_id": {"type": "string"}}, "required": ["receipt_id"]},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_action",
+            "description": "Foydalanuvchi tasdig'ini talab qiluvchi operatsiyani navbatga qo'yadi (Tasdiqlash/Bekor tugmalari ko'rsatiladi). action_type: import_receipt (payload: receipt_id), import_receipts_batch (payload: receipt_ids[]), sync_products, create_product_mapping (payload: soliq_name, soliq_mxik, one_c_product_id, one_c_name).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action_type": {"type": "string", "enum": ["import_receipt", "import_receipts_batch", "sync_products", "create_product_mapping"]},
+                    "description": {"type": "string"},
+                    "payload": {"type": "object"},
+                },
+                "required": ["action_type", "description"],
+            },
+        },
+    },
 ]
 
 
@@ -215,6 +247,7 @@ async def dispatch_tool(name: str, arguments: dict, user_id: str, company_id: Op
                 "sale_date": r.get("sale_date"),
                 "total_amount": r.get("total_amount"),
                 "status": r.get("status"),
+                "items_total": r.get("items_total"), "items_matched": r.get("items_matched"),
             })
         return {"receipts": rows, "count": len(rows)}
 
@@ -294,8 +327,37 @@ async def dispatch_tool(name: str, arguments: dict, user_id: str, company_id: Op
         return {"saved": True, "id": str(res.inserted_id)}
 
     if name == "request_approval":
+        from services.approvals import create_action
+        act = await create_action(user_id, company_id, "generic", arguments.get("description", ""), arguments.get("payload") or {}, conversation_id, source="ai")
         await _log_action("request_approval", arguments, arguments.get("description", ""), needs_conf=True)
-        return {"status": "awaiting_user_confirmation", "note": "Foydalanuvchidan tasdiq so'ralsin. Web/Telegram interfeys tasdiq tugmasini ko'rsatadi."}
+        return {"status": "awaiting_user_confirmation", "action_id": act["id"], "note": "Foydalanuvchiga Tasdiqlash/Bekor tugmalari ko'rsatiladi."}
+
+    if name == "propose_action":
+        if not company_id and arguments.get("action_type") != "generic":
+            return {"error": "Kompaniya tanlanmagan."}
+        from services.approvals import create_action
+        act = await create_action(user_id, company_id, arguments.get("action_type"), arguments.get("description", ""), arguments.get("payload") or {}, conversation_id, source="ai")
+        await _log_action("propose_action", arguments, arguments.get("description", ""), needs_conf=True)
+        return {"status": "awaiting_user_confirmation", "action_id": act["id"], "note": "Foydalanuvchi tasdiqlaganidan keyin bajariladi. Unga tasdiqlash tugmasi ko'rinishini ayt."}
+
+    if name == "get_one_c_status":
+        if not company_id:
+            return {"error": "Kompaniya tanlanmagan."}
+        from services.one_c_service import get_connection, public_connection
+        c = public_connection(await get_connection(company_id))
+        c["products_in_db"] = await db.products.count_documents({"company_id": company_id})
+        return c
+
+    if name == "get_receipt_details":
+        from services.receipts_service import public_receipt, public_item
+        try:
+            r = await db.receipts.find_one({"_id": ObjectId(arguments.get("receipt_id"))})
+        except Exception:
+            r = None
+        if not r or (company_id and r.get("company_id") != company_id):
+            return {"error": "Chek topilmadi"}
+        items = [public_item(i) async for i in db.receipt_items.find({"receipt_id": str(r["_id"])})]
+        return {"receipt": public_receipt(r), "items": items}
 
     if name == "get_sync_status":
         if not company_id:

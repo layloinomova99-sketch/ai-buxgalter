@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sparkles, Send, Wrench, User } from "lucide-react";
 import { toast } from "sonner";
+import { ApprovalsPanel } from "@/components/app/ApprovalsPanel";
 
 export default function AIChat() {
   const { active } = useCompany();
@@ -13,6 +14,7 @@ export default function AIChat() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const endRef = useRef(null);
+  const [approvalsTick, setApprovalsTick] = useState(0);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -32,6 +34,7 @@ export default function AIChat() {
       });
       setConvId(data.conversation_id);
       setMessages((m) => [...m, { role: "assistant", content: data.content, tool_calls: data.tool_trace, id: `a-${Date.now()}` }]);
+      if (data.pending_action_ids?.length) setApprovalsTick((t) => t + 1);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "AI xatosi");
     } finally { setSending(false); }
@@ -50,6 +53,7 @@ export default function AIChat() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-4 max-w-3xl w-full mx-auto" data-testid="ai-chat-messages">
+        <ApprovalsPanel key={approvalsTick} companyId={active?.id} />
         {messages.length === 0 && (
           <div className="text-center text-muted-foreground py-16 space-y-2">
             <Sparkles className="h-8 w-8 mx-auto text-emerald-600" />

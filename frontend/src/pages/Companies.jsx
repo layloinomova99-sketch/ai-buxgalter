@@ -2,13 +2,15 @@ import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useCompany } from "@/context/CompanyContext";
 import { AddCompanyDialog } from "@/components/app/AddCompanyDialog";
-import { Building2, Trash2 } from "lucide-react";
+import { Building2, Trash2, Plug } from "lucide-react";
+import { OneCDialog } from "@/components/app/OneCDialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
 export default function Companies() {
   const { companies, refresh } = useCompany();
+  const [oneC, setOneC] = useState(null);
 
   const remove = async (id) => {
     if (!confirm("Kompaniya va uning barcha ma'lumotlari o'chiriladi. Davom etamizmi?")) return;
@@ -57,7 +59,10 @@ export default function Companies() {
                   <td className="px-4 py-3"><Badge variant="outline" className="rounded-sm">{c.eri_status}</Badge></td>
                   <td className="px-4 py-3"><Badge variant="outline" className="rounded-sm">{c.one_c_status}</Badge></td>
                   <td className="px-4 py-3"><Badge variant="outline" className="rounded-sm">{c.soliq_status}</Badge></td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
+                    <Button variant="outline" size="sm" className="rounded-sm mr-2" data-testid={`one-c-btn-${c.id}`} onClick={() => setOneC(c)}>
+                      <Plug className="h-3.5 w-3.5 mr-1" /> 1C
+                    </Button>
                     <Button variant="ghost" size="icon" data-testid={`delete-company-${c.id}`} onClick={() => remove(c.id)}>
                       <Trash2 className="h-4 w-4 text-red-600" />
                     </Button>
@@ -68,6 +73,7 @@ export default function Companies() {
           </table>
         </div>
       )}
+      <OneCDialog company={oneC} open={!!oneC} onOpenChange={(o) => !o && setOneC(null)} onChanged={refresh} />
     </div>
   );
 }

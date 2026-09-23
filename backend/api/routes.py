@@ -557,3 +557,166 @@ async def telegram_status(payload: dict = Depends(current_user_payload)):
         "telegram_username": link.get("telegram_username") if link else None,
         "active_company_id": link.get("active_company_id") if link else None,
     }
+
+
+# ---------- 1C connection (per company) ----------
+from pydantic import BaseModel as _BM
+from services import one_c_service, receipts_service, approvals
+
+
+class OneCIn(_BM):
+    base_url: str
+    username: Optional[str] = None
+    password: Optional[str] = None
+    token: Optional[str] = None
+    auth_mode: str = "basic"
+
+
+async def _company_or_404(db, payload: dict, company_id: str, write: bool = False) -> dict:
+    u = await _user_by_id(db, payload["sub"])
+    if not u: raise HTTPException(401)
+    c = await _company_visible_to(db, u, company_id)
+    if not c: raise HTTPException(404, "Kompaniya topilmadi")
+    if write and u.get("role") == "observer": raise HTTPException(403, "Observer o'zgartira olmaydi")
+    return u
+
+
+@router.get("/companies/{company_id}/one-c")
+async def one_c_get(company_id: str, payload: dict = Depends(current_user_payload)):
+    db = get_db(); await _company_or_404(db, payload, company_id)
+    return one_c_service.public_connection(await one_c_service.get_connection(company_id))
+
+
+@router.put("/companies/{company_id}/one-c")
+async def one_c_save(company_id: str, body: OneCIn, payload: dict = Depends(current_user_payload)):
+    db = get_db(); u = await _company_or_404(db, payload, company_id, write=True)
+    if not body.base_url.strip(): raise HTTPException(400, "1C URL majburiy")
+    out = await one_c_service.save_connection(company_id, body.base_url, body.username, body.password, body.auth_mode, body.token)
+    await _log_audit(db, who=str(u["_id"]), what="one_c_connection_saved", company_id=company_id, new_value={"base_url": out.get("base_url")})
+    return out
+
+
+@router.post("/companies/{company_id}/one-c/test")
+async def one_c_test(company_id: str, payload: dict = Depends(current_user_payload)):
+    db = get_db(); await _company_or_404(db, payload, company_id, write=True)
+    return await one_c_service.test_connection(company_id)
+
+
+@router.post("/companies/{company_id}/one-c/sync-products")
+async def one_c_sync_products(company_id: str, payload: dict = Depends(current_user_payload)):
+    db = get_db(); u = await _company_or_404(db, payload, company_id, write=True)
+    try:
+        out = await one_c_service.sync_products(company_id)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    await _log_audit(db, who=str(u["_id"]), what=f"1C nomenklatura sinxronlandi: {out.get('synced')}", company_id=company_id)
+    return out
+
+
+@router.delete("/companies/{company_id}/one-c")
+async def one_c_delete(company_id: str, payload: dict = Depends(current_user_payload)):
+    db = get_db(); await _company_or_404(db, payload, company_id, write=True)
+    await db.one_c_connections.delete_one({"company_id": company_id})
+    await db.companies.update_one({"_id": ObjectId(company_id)}, {"$set": {"one_c_status": "not_connected"}})
+    return {"deleted": True}
+
+
+# ---------- Soliq receipts import ----------
+@router.post("/companies/{company_id}/soliq/upload")
+async def soliq_upload(company_id: str, file: UploadFile = File(...), payload: dict = Depends(current_user_payload)):
+    db = get_db(); u = await _company_or_404(db, payload, company_id, write=True)
+    data = await file.read()
+    if len(data) > 20 * 1024 * 1024: raise HTTPException(413, "Fayl 20 MB dan katta")
+    try:
+        return await receipts_service.import_soliq_excel(company_id, str(u["_id"]), data, source="web")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(400, f"Excel o'qilmadi: {e}")
+
+
+@router.get("/receipts/{receipt_id}")
+async def receipt_detail(receipt_id: str, payload: dict = Depends(current_user_payload)):
+    db = get_db()
+    try:
+        r = await db.receipts.find_one({"_id": ObjectId(receipt_id)})
+    except Exception:
+        r = None
+    if not r: raise HTTPException(404, "Chek topilmadi")
+    await _company_or_404(db, payload, r["company_id"])
+    items = [receipts_service.public_item(i) async for i in db.receipt_items.find({"receipt_id": receipt_id})]
+    return {"receipt": receipts_service.public_receipt(r), "items": items}
+
+
+class ManualMatchIn(_BM):
+    product_id: str
+    save_mapping: bool = True
+
+
+@router.post("/receipt-items/{item_id}/match")
+async def receipt_item_match(item_id: str, body: ManualMatchIn, payload: dict = Depends(current_user_payload)):
+    db = get_db()
+    try:
+        it = await db.receipt_items.find_one({"_id": ObjectId(item_id)})
+    except Exception:
+        it = None
+    if not it: raise HTTPException(404, "Qator topilmadi")
+    u = await _company_or_404(db, payload, it["company_id"], write=True)
+    try:
+        return await receipts_service.manual_match(it["company_id"], item_id, body.product_id, str(u["_id"]), body.save_mapping)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/receipts/{receipt_id}/rematch")
+async def receipt_rematch(receipt_id: str, payload: dict = Depends(current_user_payload)):
+    db = get_db()
+    r = await db.receipts.find_one({"_id": ObjectId(receipt_id)})
+    if not r: raise HTTPException(404)
+    await _company_or_404(db, payload, r["company_id"], write=True)
+    return await receipts_service.rematch_receipt(r["company_id"], receipt_id)
+
+
+class ImportIn(_BM):
+    receipt_ids: list[str]
+
+
+@router.post("/companies/{company_id}/receipts/import-1c")
+async def receipts_import_1c(company_id: str, body: ImportIn, payload: dict = Depends(current_user_payload)):
+    """Creates a pending action (requires approval) to push receipts to 1C."""
+    db = get_db(); u = await _company_or_404(db, payload, company_id, write=True)
+    ids = [i for i in body.receipt_ids if await db.receipts.find_one({"_id": ObjectId(i), "company_id": company_id, "status": {"$in": ["matched", "approved", "failed"]}})]
+    if not ids: raise HTTPException(400, "Yozishga tayyor (matched) chek tanlanmadi")
+    if len(ids) == 1:
+        r = await db.receipts.find_one({"_id": ObjectId(ids[0])})
+        act = await approvals.create_action(str(u["_id"]), company_id, "import_receipt", f"Chek №{r.get('receipt_number')} ({r.get('total_amount'):,.0f} so'm) ni 1C ga yozish".replace(",", " "), {"receipt_id": ids[0]}, source="web")
+    else:
+        act = await approvals.create_action(str(u["_id"]), company_id, "import_receipts_batch", f"{len(ids)} ta chekni 1C ga yozish", {"receipt_ids": ids}, source="web")
+    return act
+
+
+# ---------- Pending actions (approvals) ----------
+@router.get("/actions")
+async def actions_list(company_id: Optional[str] = None, status: Optional[str] = "pending", payload: dict = Depends(current_user_payload)):
+    u = await _user_by_id(get_db(), payload["sub"])
+    rows = await approvals.list_actions(user_id=None if u.get("role") == "creator" else payload["sub"], company_id=company_id, status=status or None)
+    return {"actions": rows, "count": len(rows)}
+
+
+@router.post("/actions/{action_id}/approve")
+async def action_approve(action_id: str, payload: dict = Depends(current_user_payload)):
+    db = get_db(); a = await db.pending_actions.find_one({"_id": ObjectId(action_id)})
+    if not a: raise HTTPException(404)
+    u = await _user_by_id(db, payload["sub"])
+    if a.get("user_id") != payload["sub"] and u.get("role") != "creator": raise HTTPException(403)
+    if u.get("role") == "observer": raise HTTPException(403)
+    return await approvals.decide_action(action_id, payload["sub"], True, source="web")
+
+
+@router.post("/actions/{action_id}/reject")
+async def action_reject(action_id: str, payload: dict = Depends(current_user_payload)):
+    db = get_db(); a = await db.pending_actions.find_one({"_id": ObjectId(action_id)})
+    if not a: raise HTTPException(404)
+    u = await _user_by_id(db, payload["sub"])
+    if a.get("user_id") != payload["sub"] and u.get("role") != "creator": raise HTTPException(403)
+    return await approvals.decide_action(action_id, payload["sub"], False, source="web")
